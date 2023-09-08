@@ -1,0 +1,22 @@
+{
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "tsc && concurrently --kill-others -c red,green npm:TSC npm:RUN",
+    "RUN": "nodemon dist/index.js",
+    "TSC": "tsc --watch"
+  },
+  "dependencies": {
+    "grafast": "^0.0.1-beta.7",
+    "graphile-config": "^0.0.1-beta.2",
+    "graphql": "^16.8.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "^20.1.2",
+    "@types/node": "^20.5.9",
+    "concurrently": "^8.2.1",
+    "nodemon": "^3.0.1",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2"
+  }
+}
