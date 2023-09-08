@@ -3,8 +3,13 @@ import { grafast } from "grafast";
 import { planToMermaid } from "grafast/mermaid";
 import { ExecutionResult } from "graphql";
 import { schema } from "./schema.js";
+import { AppDataSource } from "./typeorm/data-source.js";
+import { seedDatabase } from "./seed.js";
 
 async function main() {
+  const db = await AppDataSource.initialize();
+  await seedDatabase(db);
+
   const result = (await grafast({
     schema,
     source: /* GraphQL */ `

@@ -2,14 +2,18 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "start": "tsc && concurrently --kill-others -c red,green npm:TSC npm:RUN",
+    "start": "yarn db:reset && tsc && concurrently --kill-others -c red,green npm:TSC npm:RUN",
     "RUN": "nodemon dist/index.js",
-    "TSC": "tsc --watch"
+    "TSC": "tsc --watch",
+    "db:reset": "(dropdb grafast_typeorm || true) && createdb grafast_typeorm"
   },
   "dependencies": {
     "grafast": "^0.0.1-beta.7",
     "graphile-config": "^0.0.1-beta.2",
-    "graphql": "^16.8.0"
+    "graphql": "^16.8.0",
+    "pg": "^8.11.3",
+    "reflect-metadata": "^0.1.13",
+    "typeorm": "^0.3.17"
   },
   "devDependencies": {
     "@tsconfig/node20": "^20.1.2",
