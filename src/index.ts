@@ -21,8 +21,8 @@ async function main() {
   const result = (await grafast({
     schema,
     source: /* GraphQL */ `
-      query UserEventsScreen {
-        user(id: 1) {
+      query UserEventsScreen($id: Int!) {
+        user(id: $id) {
           fullName
           username
           upcomingEvents {
@@ -53,7 +53,9 @@ async function main() {
     contextValue: {
       viewerId: 2,
     },
-    variableValues: {},
+    variableValues: {
+      id: 1,
+    },
     resolvedPreset: {
       grafast: {
         explain: true,
