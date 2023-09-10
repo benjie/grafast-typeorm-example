@@ -20,7 +20,7 @@ export class User extends BaseEntity {
   username: string;
 
   @Column("text", { nullable: true })
-  avatar?: string;
+  picture?: string;
 
   @Column({ type: "timestamp", default: "now()" })
   createdAt: string;

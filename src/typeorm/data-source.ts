@@ -5,6 +5,8 @@ import { User } from "./entity/User";
 import { Event } from "./entity/Event";
 import { EventInterest } from "./entity/EventInterest";
 import { Friendship } from "./entity/Friendship";
+import { Tag } from "./entity/Tag";
+import { Venue } from "./entity/Venue";
 
 export const AppDataSource = new DataSource({
   type: "postgres",
@@ -15,5 +17,5 @@ export const AppDataSource = new DataSource({
   database: "grafast_typeorm",
   synchronize: true,
   logging: true,
-  entities: [User, EventInterest, Friendship, Event],
+  entities: [User, EventInterest, Friendship, Event, Tag, Venue],
 });

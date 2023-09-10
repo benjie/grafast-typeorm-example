@@ -13,25 +13,66 @@ import {
 } from "grafast";
 import { BaseEntity, In } from "typeorm";
 import { TypeormRecordStep } from "./typeormRecord";
+import { ColumnType } from "typeorm";
 
-export class TypeormFindStep<
-    TEntity extends typeof BaseEntity,
-    TColumn extends keyof InstanceType<TEntity>,
-  >
+/* TODO: does TypeORM have a way to do this natively? */
+function typeToPostgres(columnType: ColumnType): string {
+  switch (columnType) {
+    case "text":
+    case "varchar":
+    case "char":
+    case String:
+      return "text";
+    case "int":
+    case "int2":
+    case "int4":
+      return "int";
+    case "int8":
+      return "int8";
+    case "float":
+    case "float4":
+    case Number:
+      return "float4";
+    case "float8":
+      return "float8";
+    default: {
+      throw new Error(
+        `Do not know how to turn type '${columnType}' into a postgres type`,
+      );
+    }
+  }
+}
+
+const escapeIdentifier = (identifier: string) =>
+  `"${String(identifier).replace(/"/g, '""')}"`;
+
+export class TypeormFindStep<TEntity extends typeof BaseEntity>
   extends ExecutableStep<InstanceType<TEntity>[]>
   implements ConnectionCapableStep<TypeormRecordStep<TEntity>, ExecutableStep>
 {
+  specColumns: Array<[columnName: keyof InstanceType<TEntity>, depId: number]> =
+    [];
   constructor(
     public readonly entity: TEntity,
-    public readonly column: TColumn,
-    $id: ExecutableStep<number | null>,
+    spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
   ) {
     super();
-    this.addDependency($id);
+    for (const [columnName, $column] of Object.entries(spec)) {
+      this.specColumns.push([
+        columnName as keyof InstanceType<TEntity>,
+        this.addDependency($column),
+      ]);
+    }
   }
 
   clone() {
-    return new TypeormFindStep(this.entity, this.column, this.getDep(0));
+    return new TypeormFindStep(
+      this.entity,
+      this.specColumns.reduce((memo, [columnName, depId]) => {
+        memo[columnName] = this.getDep(depId);
+        return memo;
+      }, Object.create(null)),
+    );
   }
 
   connectionDepId: number | null = null;
@@ -50,24 +91,89 @@ export class TypeormFindStep<
   }
 
   async execute(
-    _count: number,
-    [rawIds]: [GrafastValuesList<number | null>],
+    count: number,
+    values: GrafastValuesList<number | null>[],
   ): Promise<GrafastResultsList<InstanceType<TEntity>[]>> {
-    const ids = rawIds.filter((id) => id != null);
-    const results = await this.entity.find({
-      where: { [this.column]: In(ids) },
-    });
-    const rowsById: Record<number, InstanceType<TEntity>[]> =
+    const qb = this.entity.createQueryBuilder();
+    if (this.specColumns.length === 0) {
+      /* no filtering required */
+    } else if (this.specColumns.length === 1) {
+      const [columnName, depId] = this.specColumns[0];
+      const ids = values[depId].filter((id) => id != null);
+      qb.where({ [columnName]: In(ids) });
+    } else {
+      const columnNames: string[] = [];
+      const propertyNames: string[] = [];
+      const columnTypes: string[] = [];
+      for (const s of Object.values(this.specColumns)) {
+        const col = this.entity
+          .getRepository()
+          .metadata.columns.find((c) => c.propertyName === s[0]);
+        if (!col) {
+          throw new Error(
+            `Failed to find metadata for column '${String(s[0])}'`,
+          );
+        }
+        propertyNames.push(col.propertyName);
+        columnNames.push(escapeIdentifier(col.databaseName));
+        columnTypes.push(typeToPostgres(col.type));
+      }
+
+      const tuples: any[][] = [];
+      outerloop: for (let i = 0; i < count; i++) {
+        const tuple = [];
+        for (const [columnName, depId] of this.specColumns) {
+          const val = values[depId][i];
+          if (val == null) continue outerloop;
+          tuple.push(val);
+        }
+        tuples.push(tuple);
+      }
+      qb.where(
+        `(${propertyNames
+          .map(escapeIdentifier)
+          .join(",")}) IN (SELECT ${columnTypes
+          .map((t, i) => `(j->>${i})::${escapeIdentifier(t)}`)
+          .join(", ")} FROM json_array_elements(:json) j)`,
+        {
+          json: JSON.stringify(tuples),
+        },
+      );
+    }
+    const records = (await qb.getMany()) as InstanceType<TEntity>[];
+
+    if (this.specColumns.length === 0) {
+      // No spec; therefore every call is the same
+      return Array.from({ length: count }, () => records);
+    }
+
+    // Group the rows by their matching spec
+    const rowsBySpec: Record<string, InstanceType<TEntity>[]> =
       Object.create(null);
-    for (const result of results) {
-      const id = (result as any)[this.column];
-      if (!rowsById[id]) {
-        rowsById[id] = [result] as InstanceType<TEntity>[];
+    for (const record of records) {
+      const spec = Object.create(null);
+      for (const [columnName] of this.specColumns) {
+        spec[columnName] = record[columnName];
+      }
+      const id = JSON.stringify(spec);
+      if (!rowsBySpec[id]) {
+        rowsBySpec[id] = [record] as InstanceType<TEntity>[];
       } else {
-        rowsById[id].push(result as InstanceType<TEntity>);
+        rowsBySpec[id].push(record as InstanceType<TEntity>);
       }
     }
-    return rawIds.map((id) => (id != null ? rowsById[id] ?? [] : []));
+
+    // Now populate the results list
+    const results = new Array<InstanceType<TEntity>[]>(count);
+    for (let i = 0; i < count; i++) {
+      const spec = Object.create(null);
+      for (const [columnName, depId] of this.specColumns) {
+        spec[columnName] = values[depId][i];
+      }
+      const id = JSON.stringify(spec);
+      results[i] = rowsBySpec[id] ?? [];
+    }
+    return results;
   }
 
   listItem($item: __ItemStep<InstanceType<TEntity>>) {
@@ -109,9 +215,9 @@ export class TypeormFindStep<
   }
 }
 
-export function typeormFind<
-  TEntity extends typeof BaseEntity,
-  TColumn extends keyof InstanceType<TEntity>,
->(entity: TEntity, column: TColumn, $id: ExecutableStep<number | null>) {
-  return new TypeormFindStep(entity, column, $id);
+export function typeormFind<TEntity extends typeof BaseEntity>(
+  entity: TEntity,
+  spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
+) {
+  return new TypeormFindStep(entity, spec);
 }

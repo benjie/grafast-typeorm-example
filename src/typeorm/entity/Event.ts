@@ -4,8 +4,10 @@ import {
   Column,
   BaseEntity,
   OneToMany,
+  ManyToOne,
 } from "typeorm";
 import { EventInterest } from "./EventInterest";
+import { Venue } from "./Venue";
 
 @Entity()
 export class Event extends BaseEntity {
@@ -21,12 +23,18 @@ export class Event extends BaseEntity {
   @Column({ type: "timestamp" })
   date: Date;
 
-  @Column({ nullable: true })
-  location?: string;
-
   @Column({ type: "timestamp", default: "now()" })
   createdAt: string;
 
   @OneToMany(() => EventInterest, (interest) => interest.event)
   eventInterests: EventInterest[];
+
+  @ManyToOne(() => Venue, (venue) => venue.events)
+  venue: Venue;
+
+  @Column({ type: "int" })
+  venueId: number;
+
+  @Column("text", { array: true, default: "{}" })
+  tags: string[];
 }

@@ -3,7 +3,7 @@ import { User } from "./typeorm/entity/User.js";
 
 const seed = `
 insert into "user"
-  (name, username, avatar) values
+  ("fullName", username, picture) values
   ('Alice Grayte', 'AliceTheGreat', 'great.png'),
   ('Bob', 'bob', 'bob.png'),
   ('Charlie', 'charlie', 'charlie.png'),
@@ -19,15 +19,25 @@ insert into friendship
   (4, 5),
   (5, 1);
 
+insert into venue
+  (name) values
+  ('San Francisco'),
+  ('Southampton'),
+  ('London'),
+  ('Paris'),
+  ('Berlin'),
+  ('Windsor'),
+  ('San Francisco');
+
 insert into event
-  (name, date, location) values
-  ('GraphQLConf', '2023-09-14T17:00:00Z', 'San Francisco'),
-  ('Southampton Digital', '2023-09-28T19:00:00Z', 'Southampton'),
-  ('Disco', '2023-10-01T21:00:00Z', 'London'),
-  ('Pride', '2023-10-01T21:00:00Z', 'Paris'),
-  ('BBQ', '2023-10-01T21:00:00Z', 'Berlin'),
-  ('Royal Wedding', '2024-05-19T12:00:00Z', 'Windsor'),
-  ('GraphQL Summit', '2024-10-01T21:00:00Z', 'San Francisco');
+  (name, date, "venueId") values
+  ('GraphQLConf', '2023-09-14T17:00:00Z',1),
+  ('Southampton Digital', '2023-09-28T19:00:00Z',2),
+  ('Disco', '2023-10-01T21:00:00Z', 3),
+  ('Pride', '2023-10-01T21:00:00Z',4),
+  ('BBQ', '2023-10-01T21:00:00Z',5),
+  ('Royal Wedding', '2024-05-19T12:00:00Z',6),
+  ('GraphQL Summit', '2024-10-01T21:00:00Z',7);
 
 insert into event_interest
   ("eventId", "userId", rsvp) values
