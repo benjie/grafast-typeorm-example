@@ -61,6 +61,8 @@ async function main() {
     },
   })) as ExecutionResult;
 
+  console.dir(result.data, { depth: 100 });
+
   if (result.errors) {
     console.dir(result.errors, { depth: 100 });
     throw new Error(`GraphQL query raised an error`);

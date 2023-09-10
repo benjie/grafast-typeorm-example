@@ -11,6 +11,7 @@ import { BaseEntity } from "typeorm";
 export class TypeormRecordStep<
   TEntity extends typeof BaseEntity,
 > extends ExecutableStep<InstanceType<TEntity>> {
+  isSyncAndSafe = true;
   constructor(
     public readonly entity: TEntity,
     $item: ExecutableStep<InstanceType<TEntity>>,
