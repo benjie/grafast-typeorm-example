@@ -14,7 +14,7 @@ export class User extends BaseEntity {
   id: number;
 
   @Column()
-  name: string;
+  fullName: string;
 
   @Column({ unique: true })
   username: string;
@@ -23,7 +23,7 @@ export class User extends BaseEntity {
   avatar?: string;
 
   @Column({ type: "timestamp", default: "now()" })
-  created_at: string;
+  createdAt: string;
 
   @OneToMany(() => EventInterest, (interest) => interest.user)
   eventInterests: EventInterest[];

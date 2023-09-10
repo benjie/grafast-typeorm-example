@@ -1,4 +1,13 @@
-import { constant, makeGrafastSchema } from "grafast";
+import {
+  connection,
+  context,
+  makeGrafastSchema,
+  ConnectionStep,
+  EdgeCapableStep,
+} from "grafast";
+import { getEvent, getUpcomingEventIdsForUser, getUser } from "./steps";
+import { TypeormRecordStep } from "./steps/typeormRecord";
+import { Event } from "./typeorm/entity/Event";
 
 export const schema = makeGrafastSchema({
   typeDefs: /* GraphQL */ `
@@ -18,7 +27,7 @@ export const schema = makeGrafastSchema({
     }
     type EventEdge {
       cursor: String!
-      node: Event!
+      node: Event
     }
     type Event {
       id: Int!
@@ -58,7 +67,30 @@ export const schema = makeGrafastSchema({
   plans: {
     Query: {
       user(_, { $id }) {
-        return constant(null);
+        return getUser($id);
+      },
+    },
+    User: {
+      upcomingEvents($user, { $first }) {
+        const $userId = $user.get("id");
+        const $list = getUpcomingEventIdsForUser($userId);
+        return connection($list);
+      },
+    },
+    EventConnection: {
+      edges($connection: ConnectionStep<any, any, any>) {
+        return $connection.edges();
+      },
+    },
+    EventEdge: {
+      node($edge: EdgeCapableStep<any>) {
+        console.log(`${$edge}`);
+        const $eventInterest = $edge.node();
+        const $eventId = $eventInterest.get("eventId");
+        return getEvent($eventId);
+      },
+      cursor($edge: EdgeCapableStep<any>) {
+        return $edge.cursor();
       },
     },
   },

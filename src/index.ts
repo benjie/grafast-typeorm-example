@@ -6,6 +6,14 @@ import { schema } from "./schema.js";
 import { AppDataSource } from "./typeorm/data-source.js";
 import { seedDatabase } from "./seed.js";
 
+declare global {
+  namespace Grafast {
+    interface Context {
+      viewerId: number | undefined;
+    }
+  }
+}
+
 async function main() {
   const db = await AppDataSource.initialize();
   await seedDatabase(db);
@@ -42,7 +50,9 @@ async function main() {
         }
       }
     `,
-    contextValue: {},
+    contextValue: {
+      viewerId: 2,
+    },
     variableValues: {},
     resolvedPreset: {
       grafast: {

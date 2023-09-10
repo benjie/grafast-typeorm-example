@@ -19,6 +19,12 @@ export class EventInterest extends BaseEntity {
   @ManyToOne(() => Event, (event) => event.eventInterests)
   event: Event;
 
+  @Column({ nullable: false })
+  eventId: number;
+
   @ManyToOne(() => User, (user) => user.eventInterests)
   user: User;
+
+  @Column({ nullable: false })
+  userId: number;
 }
