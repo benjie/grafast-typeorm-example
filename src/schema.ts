@@ -1,23 +1,21 @@
 import {
   connection,
-  context,
   makeGrafastSchema,
   ConnectionStep,
   EdgeCapableStep,
-  constant,
   each,
 } from "grafast";
 import {
   getEvent,
   getTag,
-  getUpcomingEventIdsForUser,
+  getUpcomingEventsForUser,
   getUser,
   getVenue,
+  getViewerFriendAttendanceForEvent,
+  getViewerMetadataForEvent,
 } from "./steps";
 import { TypeormRecordStep } from "./steps/typeormRecord";
 import { Event } from "./typeorm/entity/Event";
-import { EventInterest } from "./typeorm/entity/EventInterest";
-import { typeormFind } from "./steps/typeormFind";
 
 export const schema = makeGrafastSchema({
   typeDefs: /* GraphQL */ `
@@ -83,7 +81,7 @@ export const schema = makeGrafastSchema({
     User: {
       upcomingEvents($user, { $first }) {
         const $userId = $user.get("id");
-        const $list = getUpcomingEventIdsForUser($userId);
+        const $list = getUpcomingEventsForUser($userId);
         return connection($list);
       },
     },
@@ -119,14 +117,8 @@ export const schema = makeGrafastSchema({
     },
     Event: {
       viewerRsvp($event: TypeormRecordStep<typeof Event>) {
-        const $viewerId = context().get("viewerId");
         const $eventId = $event.get("id");
-        return typeormFind(EventInterest, {
-          eventId: $eventId,
-          userId: $viewerId,
-        })
-          .single()
-          .get("rsvp");
+        return getViewerMetadataForEvent($eventId).get("rsvp");
       },
       tags($event: TypeormRecordStep<typeof Event>) {
         return each($event.get("tags"), ($tag) => getTag($tag));
@@ -135,11 +127,8 @@ export const schema = makeGrafastSchema({
         return getVenue($event.get("venueId"));
       },
       attendingFriendsOfViewer($event: TypeormRecordStep<typeof Event>) {
-        const $list = typeormFind(EventInterest, {
-          eventId: $event.get("id"),
-          rsvp: constant("yes"),
-        });
-        // TODO: limit to friends
+        const $eventId = $event.get("id");
+        const $list = getViewerFriendAttendanceForEvent($eventId);
         return connection($list);
       },
     },

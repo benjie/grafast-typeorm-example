@@ -1,4 +1,4 @@
-import { ExecutableStep } from "grafast";
+import { ExecutableStep, constant, context } from "grafast";
 import { User } from "../typeorm/entity/User";
 import { Event } from "../typeorm/entity/Event";
 import { typeormFind } from "./typeormFind";
@@ -10,12 +10,19 @@ export function getUser($id: ExecutableStep<any>) {
   return typeormFind(User, { id: $id }).single();
 }
 
-export function getUpcomingEventIdsForUser($id: ExecutableStep<any>) {
+export function getUpcomingEventsForUser($id: ExecutableStep<any>) {
   return typeormFind(EventInterest, { userId: $id });
 }
 
 export function getEvent($id: ExecutableStep<any>) {
   return typeormFind(Event, { id: $id }).single();
+}
+export function getViewerMetadataForEvent($eventId: ExecutableStep) {
+  const $viewerId = context().get("viewerId");
+  return typeormFind(EventInterest, {
+    eventId: $eventId,
+    userId: $viewerId,
+  }).single();
 }
 
 export function getTag($tagName: ExecutableStep<any>) {
@@ -24,4 +31,13 @@ export function getTag($tagName: ExecutableStep<any>) {
 
 export function getVenue($id: ExecutableStep<any>) {
   return typeormFind(Venue, { id: $id }).single();
+}
+
+export function getViewerFriendAttendanceForEvent($eventId: ExecutableStep) {
+  const $list = typeormFind(EventInterest, {
+    eventId: $eventId,
+    rsvp: constant("yes", true),
+  });
+  // TODO: limit to friends
+  return $list;
 }
