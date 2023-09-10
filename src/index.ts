@@ -13,8 +13,33 @@ async function main() {
   const result = (await grafast({
     schema,
     source: /* GraphQL */ `
-      query Example {
-        meaningOfLife
+      query UserEventsScreen {
+        user(id: 1) {
+          fullName
+          username
+          upcomingEvents {
+            edges {
+              node {
+                id
+                name
+                viewerRsvp
+                venue {
+                  name
+                }
+                tags {
+                  name
+                }
+                attendingFriendsOfViewer(first: 4) {
+                  edges {
+                    node {
+                      picture(size: 25)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     `,
     contextValue: {},
