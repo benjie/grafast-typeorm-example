@@ -66,8 +66,6 @@ async function main() {
     throw new Error(`GraphQL query raised an error`);
   }
 
-  console.dir(result.data, { depth: 100 });
-
   await writeFile(
     "plan.mermaid",
     planToMermaid((result.extensions?.explain as any)?.operations?.[0]?.plan, {

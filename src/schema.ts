@@ -118,6 +118,16 @@ export const schema = makeGrafastSchema({
       },
     },
     Event: {
+      viewerRsvp($event: TypeormRecordStep<typeof Event>) {
+        const $viewerId = context().get("viewerId");
+        const $eventId = $event.get("id");
+        return typeormFind(EventInterest, {
+          eventId: $eventId,
+          userId: $viewerId,
+        })
+          .single()
+          .get("rsvp");
+      },
       tags($event: TypeormRecordStep<typeof Event>) {
         return each($event.get("tags"), ($tag) => getTag($tag));
       },
