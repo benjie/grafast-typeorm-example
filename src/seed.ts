@@ -10,6 +10,13 @@ insert into "user"
   ('Diane', 'diane', 'diane.png'),
   ('Eve', 'eve', 'eve.png');
 
+insert into tag
+  (name) values
+  ('GraphQL'),
+  ('tech'),
+  ('food'),
+  ('social');
+
 insert into friendship
   ("userId", "friendId") values
   (1, 4),
@@ -30,14 +37,14 @@ insert into venue
   ('San Francisco');
 
 insert into event
-  (name, date, "venueId") values
-  ('GraphQLConf', '2023-09-14T17:00:00Z',1),
-  ('Southampton Digital', '2023-09-28T19:00:00Z',2),
-  ('Disco', '2023-10-01T21:00:00Z', 3),
-  ('Pride', '2023-10-01T21:00:00Z',4),
-  ('BBQ', '2023-10-01T21:00:00Z',5),
-  ('Royal Wedding', '2024-05-19T12:00:00Z',6),
-  ('GraphQL Summit', '2024-10-01T21:00:00Z',7);
+  (name, date, "venueId", tags) values
+  ('GraphQLConf', '2023-09-14T17:00:00Z',1,ARRAY['GraphQL','tech']::text[]),
+  ('Southampton Digital', '2023-09-28T19:00:00Z',2, ARRAY['social', 'food']),
+  ('Disco', '2023-10-01T21:00:00Z', 3, ARRAY[]::text[]),
+  ('Pride', '2023-10-01T21:00:00Z',4,ARRAY['social']),
+  ('BBQ', '2023-10-01T21:00:00Z',5,ARRAY['food']),
+  ('Royal Wedding', '2024-05-19T12:00:00Z',6,ARRAY[]::text[]),
+  ('GraphQL Summit', '2024-10-01T21:00:00Z',7,ARRAY['GraphQL']);
 
 insert into event_interest
   ("eventId", "userId", rsvp) values

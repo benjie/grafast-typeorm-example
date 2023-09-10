@@ -18,8 +18,8 @@ export function getEvent($id: ExecutableStep<any>) {
   return typeormFind(Event, { id: $id }).single();
 }
 
-export function getTag($tag: ExecutableStep<any>) {
-  return typeormFind(Tag, { tag: $tag }).single();
+export function getTag($tagName: ExecutableStep<any>) {
+  return typeormFind(Tag, { name: $tagName }).single();
 }
 
 export function getVenue($id: ExecutableStep<any>) {
