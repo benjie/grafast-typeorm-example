@@ -129,15 +129,22 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
         }
         tuples.push(tuple);
       }
-      qb.where(
-        `(${propertyNames
-          .map(escapeIdentifier)
-          .join(",")}) IN (SELECT ${columnTypes
-          .map((t, i) => `(j->>${i})::${escapeIdentifier(t)}`)
-          .join(", ")} FROM json_array_elements(:json) j)`,
-        {
-          json: JSON.stringify(tuples),
-        },
+
+      qb.addCommonTableExpression(
+        `SELECT ${columnTypes
+          .map((t, i) => `(j->>${i})::${escapeIdentifier(t)} AS ident_${i}`)
+          .join(", ")} FROM json_array_elements(:json) j`,
+        "grafast_idents",
+      );
+      qb.setParameters({
+        json: JSON.stringify(tuples),
+      });
+      qb.innerJoin(
+        "grafast_idents",
+        "grafast_idents",
+        `${propertyNames
+          .map((n, i) => `${escapeIdentifier(n)} = ident_${i}`)
+          .join(" AND ")}`,
       );
     }
     const records = (await qb.getMany()) as InstanceType<TEntity>[];
