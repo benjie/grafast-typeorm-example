@@ -65,11 +65,6 @@ async function main() {
 
   console.dir(result.data, { depth: 100 });
 
-  if (result.errors) {
-    console.dir(result.errors, { depth: 100 });
-    throw new Error(`GraphQL query raised an error`);
-  }
-
   await writeFile(
     "plan.mermaid",
     planToMermaid((result.extensions?.explain as any)?.operations?.[0]?.plan, {
@@ -77,6 +72,11 @@ async function main() {
       concise: true,
     }),
   );
+
+  if (result.errors) {
+    console.dir(result.errors, { depth: 100 });
+    throw new Error(`GraphQL query raised an error`);
+  }
 }
 
 main().catch((e) => {
