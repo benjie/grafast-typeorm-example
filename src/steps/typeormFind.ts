@@ -425,13 +425,15 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
               const metadata = parentEntity.getRepository().metadata;
               const sortedColumnNames = [...columnNames].sort() as string[];
               // and the relationship is unique
-              const relation = metadata.relationsWithJoinColumns.find((rel) =>
-                rel.foreignKeys.some((k) =>
-                  arraysMatch(
-                    [...k.referencedColumnNames].sort(),
-                    sortedColumnNames,
+              const relation = metadata.relationsWithJoinColumns.find(
+                (rel) =>
+                  rel.target === this.entity &&
+                  rel.foreignKeys.some((k) =>
+                    arraysMatch(
+                      [...k.referencedColumnNames].sort(),
+                      sortedColumnNames,
+                    ),
                   ),
-                ),
               );
               const disallowedJoins = Object.values(this.aliases).filter(
                 (spec) => spec.type !== "from" && spec.type !== "identifiers",
