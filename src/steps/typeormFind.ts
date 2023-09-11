@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import {
   ConnectionCapableStep,
   ConnectionStep,
@@ -432,7 +433,11 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
                   ),
                 ),
               );
-              if (relation) {
+              const disallowedJoins = Object.values(this.aliases).filter(
+                (spec) => spec.type !== "from" && spec.type !== "identifiers",
+              );
+              const allowed = relation && disallowedJoins.length === 0;
+              if (allowed) {
                 const name = relation.propertyName;
                 parent.leftJoinAndMapOne(
                   name,
@@ -449,6 +454,14 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
                 // tell that TypeormFind to fetch us
                 // and replace ourself with a single-item list of an access to this
                 return list([access(recordDep, relation.propertyName)]);
+              } else if (relation) {
+                console.warn(
+                  `Could not inline ${this} into ${parent} via ${
+                    relation.propertyName
+                  } because we have some local joins: ${inspect(
+                    disallowedJoins,
+                  )}`,
+                );
               }
             }
           }
