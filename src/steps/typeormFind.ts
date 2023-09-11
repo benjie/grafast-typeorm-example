@@ -290,7 +290,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     if (trivial) {
       // No spec; therefore every call is the same
       const records = rows.map((row) =>
-        rowToEntity(this.entity, row, `${this.entity.name}_`, this.aliases),
+        rowToEntity(this.entity, row, this.entity.name, this.aliases),
       ) as InstanceType<TEntity>[];
       return Array.from({ length: count }, () => records);
     } else {
@@ -303,7 +303,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
         const record = rowToEntity(
           this.entity,
           row,
-          `${this.entity.name}_`,
+          this.entity.name,
           this.aliases,
         ) as InstanceType<TEntity>;
 
@@ -577,11 +577,10 @@ export function typeormFind<TEntity extends typeof BaseEntity>(
 function rowToEntity(
   entityType: typeof BaseEntity,
   row: object,
-  prefix: string,
+  currentAlias: string,
   aliases: Record<string, AliasSpec>,
-  currentAlias = entityType.name,
-  depth = 0,
 ) {
+  const prefix = currentAlias + "_";
   const obj = Object.create(null);
   for (const [key, val] of Object.entries(row)) {
     if (key.startsWith(prefix)) {
@@ -601,14 +600,8 @@ function rowToEntity(
       case "leftJoinAndMapOne": {
         const { relationName, entity, parentAlias } = spec;
         if (parentAlias === currentAlias) {
-          obj[relationName] = rowToEntity(
-            entity,
-            row,
-            alias + "_",
-            aliases,
-            alias,
-            depth + 1,
-          );
+          obj[relationName] = rowToEntity(entity, row, alias, aliases);
+          console.log(relationName, obj[relationName]);
         }
         break;
       }
