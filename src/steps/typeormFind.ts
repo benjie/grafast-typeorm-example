@@ -17,6 +17,7 @@ import {
   list,
   object,
   arraysMatch,
+  __TrackedValueStep,
 } from "grafast";
 import { BaseEntity, In } from "typeorm";
 import { TypeormRecordStep } from "./typeormRecord";
@@ -64,7 +65,7 @@ type AliasSpecInnerJoin = { type: "innerJoin"; relationName: string };
 type AliasSpecLeftJoinAndMapOne = {
   type: "leftJoinAndMapOne";
   relationName: string;
-  condition?: string;
+  condition: string;
 };
 type AliasSpecFrom = { type: "from" };
 type AliasSpecIdentifiers = { type: "identifiers" };
@@ -261,7 +262,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
             spec.relationName,
             spec.relationName,
             alias,
-            spec.condition ?? "true",
+            spec.condition,
           );
           break;
         }
@@ -398,18 +399,21 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     // If I have a spec:
     if (this.specColumns.length > 0) {
       // And my spec values are each access steps
-      const specSteps = this.specColumns
-        .map(([, depId]) => this.getDep(depId))
-        .filter(($step) => !($step instanceof ConstantStep));
+      const allSpecSteps = this.specColumns.map(
+        ([columnName, depId]) => [columnName, this.getDep(depId)] as const,
+      );
+      const isRootStep = ($step: ExecutableStep<any>) =>
+        $step instanceof __TrackedValueStep || $step instanceof ConstantStep;
+      const specSteps = allSpecSteps.filter(([, $step]) => !isRootStep($step));
       if (
         specSteps.length > 0 &&
-        specSteps.every((s) => s instanceof AccessStep)
+        specSteps.every(([, s]) => s instanceof AccessStep)
       ) {
         // and the access plan is from a TypeormRecord
-        let typeormRecordStep = specSteps[0].getDep(0);
+        let typeormRecordStep = specSteps[0][1].getDep(0);
         if (
           typeormRecordStep instanceof TypeormRecordStep &&
-          specSteps.every((s) => s.getDep(0) === typeormRecordStep)
+          specSteps.every(([, s]) => s.getDep(0) === typeormRecordStep)
         ) {
           // and that record is either a list item or the first of a list
           const recordDep = typeormRecordStep.getDep(0);
@@ -430,7 +434,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
               // and the relationship is unique
               const relation = metadata.relationsWithJoinColumns.find(
                 (rel) =>
-                  rel.target === this.entity &&
+                  rel.inverseEntityMetadata.target === this.entity &&
                   rel.foreignKeys.some((k) =>
                     arraysMatch(
                       [...k.referencedColumnNames].sort(),
@@ -438,27 +442,85 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
                     ),
                   ),
               );
-              const disallowedJoins = Object.values(this.aliases).filter(
-                (spec) => spec.type !== "from" && spec.type !== "identifiers",
+              const allowedJoins = Object.entries(this.aliases).filter(
+                (entry): entry is [string, AliasSpecLeftJoinAndMapOne] =>
+                  entry[1].type === "leftJoinAndMapOne",
+              );
+              const disallowedJoins = Object.entries(this.aliases).filter(
+                ([, spec]) =>
+                  spec.type !== "from" &&
+                  spec.type !== "identifiers" &&
+                  spec.type !== "leftJoinAndMapOne",
               );
               const allowed = relation && disallowedJoins.length === 0;
               if (allowed) {
+                const fk = relation.foreignKeys.find((k) =>
+                  arraysMatch(
+                    [...k.referencedColumnNames].sort(),
+                    sortedColumnNames,
+                  ),
+                )!;
                 const name = relation.propertyName;
-                parent.leftJoinAndMapOne(
-                  name,
-                  `inline_${name}`,
-                  this.conditions.length === 0
-                    ? "true"
-                    : `(${this.conditions
-                        .map(({ sql }) => `(${sql})`)
-                        .join(" AND ")})`,
-                );
-                for (const [paramName, depId] of Object.entries(this.params)) {
-                  parent.param(this.getDep(depId), paramName);
+
+                // TODO: if we can change the alias, we'll be able to merge more.
+                // Alas, that'd involve rewriting parts of the query?
+                const alias = this.entity.name;
+
+                if (!parent.aliases[alias]) {
+                  const joinConditions: string[] = [];
+                  // First, all the specs
+                  for (const [columnName, $step] of allSpecSteps) {
+                    if (isRootStep($step)) {
+                      joinConditions.push(
+                        `${escapeIdentifier(alias)}.${escapeIdentifier(
+                          columnName as string,
+                        )} = ${parent.param($step)}`,
+                      );
+                    } else {
+                      const idx = fk.referencedColumnNames.indexOf(
+                        columnName as string,
+                      );
+                      const otherCol = fk.columnNames[idx];
+                      joinConditions.push(
+                        `${escapeIdentifier(alias)}.${escapeIdentifier(
+                          columnName as string,
+                        )} = ${escapeIdentifier(
+                          parent.entity.name,
+                        )}.${escapeIdentifier(otherCol)}`,
+                      );
+                    }
+                  }
+                  // Then, all the conditions:
+                  for (const { sql } of this.conditions) {
+                    joinConditions.push(sql);
+                  }
+                  parent.leftJoinAndMapOne(
+                    name,
+                    alias,
+                    joinConditions.length > 0
+                      ? `(${joinConditions.join(" AND ")})`
+                      : "true",
+                  );
+                  for (const [alias, spec] of allowedJoins) {
+                    parent.leftJoinAndMapOne(
+                      spec.relationName,
+                      alias,
+                      spec.condition,
+                    );
+                  }
+                  for (const [paramName, depId] of Object.entries(
+                    this.params,
+                  )) {
+                    parent.param(this.getDep(depId), paramName);
+                  }
+                  // tell that TypeormFind to fetch us
+                  // and replace ourself with a single-item list of an access to this
+                  return list([access(recordDep, relation.propertyName)]);
+                } else {
+                  console.warn(
+                    `Could not inline because alias '${alias}' is already in use in ${parent}`,
+                  );
                 }
-                // tell that TypeormFind to fetch us
-                // and replace ourself with a single-item list of an access to this
-                return list([access(recordDep, relation.propertyName)]);
               } else if (relation) {
                 console.warn(
                   `Could not inline ${this} into ${parent} via ${
