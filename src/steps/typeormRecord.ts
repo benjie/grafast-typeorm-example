@@ -1,5 +1,6 @@
 import {
   ExecutableStep,
+  FirstStep,
   GrafastResultsList,
   GrafastValuesList,
   __ItemStep,
@@ -7,6 +8,7 @@ import {
   lambda,
 } from "grafast";
 import { BaseEntity } from "typeorm";
+import { TypeormFindStep } from "./typeormFind";
 
 export class TypeormRecordStep<
   TEntity extends typeof BaseEntity,
@@ -33,7 +35,27 @@ export class TypeormRecordStep<
   get<TKey extends keyof InstanceType<TEntity>>(
     key: TKey,
   ): ExecutableStep<InstanceType<TEntity>[TKey]> {
+    // If this key is one of the specs used to fetch itself, return the spec'd value instead
+    // TODO: only do this if safe to do so, e.g. `citext` wouldn't be safe since
+    // the records 'username' might be 'Benjie' but the search parameter might
+    // be 'bEnJiE'.
+    let parent = this.getDep(0);
+    while (parent instanceof __ItemStep || parent instanceof FirstStep) {
+      parent = parent.getDep(0);
+    }
+    if (parent instanceof TypeormFindStep) {
+      const spec = parent.specColumns.find((spec) => spec[0] === key);
+      if (spec) {
+        const $dep = parent.getDep(spec[1]);
+        console.log(
+          `FOUND! Replacing ${this}.get('${String(key)}') with ${$dep}`,
+        );
+        return $dep;
+      }
+    }
+
     // TODO: track this column was requested, add to select
+
     return access(this, key);
   }
 
