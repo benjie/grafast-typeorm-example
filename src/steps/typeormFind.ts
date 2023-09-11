@@ -601,7 +601,6 @@ function rowToEntity(
         const { relationName, entity, parentAlias } = spec;
         if (parentAlias === currentAlias) {
           obj[relationName] = rowToEntity(entity, row, alias, aliases);
-          console.log(relationName, obj[relationName]);
         }
         break;
       }
