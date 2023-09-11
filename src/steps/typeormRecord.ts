@@ -59,6 +59,11 @@ export class TypeormRecordStep<
     return access(this, key);
   }
 
+  optimize(): ExecutableStep<any> {
+    // This step doesn't need to exist at runtime
+    return this.getDep(0);
+  }
+
   node() {
     return this;
   }
