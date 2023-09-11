@@ -48,18 +48,18 @@ function typeToPostgres(columnType: ColumnType): string {
 const escapeIdentifier = (identifier: string) =>
   `"${String(identifier).replace(/"/g, '""')}"`;
 
+type AliasSpec = AliasSpecInner | AliasSpecFrom | AliasSpecIdentifiers;
+type AliasSpecInner = { type: "inner"; relationName: string };
+type AliasSpecFrom = { type: "from" };
+type AliasSpecIdentifiers = { type: "identifiers" };
+
 export class TypeormFindStep<TEntity extends typeof BaseEntity>
   extends ExecutableStep<InstanceType<TEntity>[]>
   implements ConnectionCapableStep<TypeormRecordStep<TEntity>, ExecutableStep>
 {
   specColumns: Array<[columnName: keyof InstanceType<TEntity>, depId: number]> =
     [];
-  aliases: Record<
-    string,
-    | { type: "inner"; relationName: string }
-    | { type: "from" }
-    | { type: "identifiers" }
-  > = Object.assign(Object.create(null), {
+  aliases: Record<string, AliasSpec> = Object.assign(Object.create(null), {
     tbl: { type: "from" },
     [GRAFAST_IDENTS]: { type: "identifiers" },
   });
@@ -76,6 +76,26 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
         this.addDependency($column),
       ]);
     }
+  }
+
+  toStringMeta() {
+    let str = `${this.entity.name}`;
+    if (this.specColumns.length > 0) {
+      str += `[${this.specColumns
+        .map(([columnName]) => columnName)
+        .join(",")}]`;
+    }
+    const joins = Object.entries(this.aliases).filter(
+      (foo): foo is [string, AliasSpecInner] => foo[1].type === "inner",
+    );
+    for (const [alias, spec] of joins) {
+      str += `,${spec.relationName}`;
+    }
+    if (this.aliases.tbl)
+      if (this.conditions.length > 0) {
+        str += "?";
+      }
+    return str;
   }
 
   clone() {

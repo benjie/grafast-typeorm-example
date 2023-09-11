@@ -19,6 +19,9 @@ export class TypeormRecordStep<
     super();
     this.addDependency($item);
   }
+  toStringMeta(): string {
+    return this.entity.name;
+  }
 
   execute(
     _count: number,
