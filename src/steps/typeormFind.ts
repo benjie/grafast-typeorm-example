@@ -64,7 +64,9 @@ type AliasSpec =
 type AliasSpecInnerJoin = { type: "innerJoin"; relationName: string };
 type AliasSpecLeftJoinAndMapOne = {
   type: "leftJoinAndMapOne";
+  entity: typeof BaseEntity;
   relationName: string;
+  parentAlias: string;
   condition: string;
 };
 type AliasSpecFrom = { type: "from" };
@@ -136,7 +138,13 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
           break;
         }
         case "leftJoinAndMapOne": {
-          $clone.leftJoinAndMapOne(spec.relationName, alias, spec.condition);
+          $clone.leftJoinAndMapOne(
+            spec.entity,
+            spec.relationName,
+            spec.parentAlias,
+            alias,
+            spec.condition,
+          );
           break;
         }
         default: {
@@ -356,12 +364,20 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     this.aliases[alias] = { type: "innerJoin", relationName };
   }
 
-  leftJoinAndMapOne(relationName: string, alias: string, condition?: string) {
+  leftJoinAndMapOne(
+    entity: typeof BaseEntity,
+    relationName: string,
+    parentAlias: string,
+    alias: string,
+    condition: string,
+  ) {
     if (this.aliases[alias]) {
       throw new Error("A table with that alias already exists");
     }
     this.aliases[alias] = {
       type: "leftJoinAndMapOne",
+      entity,
+      parentAlias,
       relationName,
       condition,
     };
@@ -495,7 +511,9 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
                     joinConditions.push(sql);
                   }
                   parent.leftJoinAndMapOne(
+                    this.entity,
                     name,
+                    parent.entity.name,
                     alias,
                     joinConditions.length > 0
                       ? `(${joinConditions.join(" AND ")})`
@@ -503,7 +521,9 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
                   );
                   for (const [alias, spec] of allowedJoins) {
                     parent.leftJoinAndMapOne(
+                      spec.entity,
                       spec.relationName,
+                      spec.parentAlias,
                       alias,
                       spec.condition,
                     );
@@ -559,34 +579,42 @@ function rowToEntity(
   row: object,
   prefix: string,
   aliases: Record<string, AliasSpec>,
+  currentAlias = entityType.name,
+  depth = 0,
 ) {
   const obj = Object.create(null);
   for (const [key, val] of Object.entries(row)) {
     if (key.startsWith(prefix)) {
       obj[key.substring(prefix.length)] = val;
-    } else {
-      for (const [alias, spec] of Object.entries(aliases)) {
-        if (key.startsWith(`${alias}_`)) {
-          switch (spec.type) {
-            case "from":
-            case "identifiers":
-            case "innerJoin": {
-              break;
-            }
-            case "leftJoinAndMapOne": {
-              const { relationName } = spec;
-              if (!obj[relationName]) {
-                obj[relationName] = Object.create(null);
-              }
-              obj[relationName][key.substring(alias.length + 1)] = val;
-              break;
-            }
-            default: {
-              const never: never = spec;
-              throw new Error(`Unknown alias type '${never}'`);
-            }
-          }
+    }
+  }
+  if (Object.keys(obj).length === 0) {
+    return null;
+  }
+  for (const [alias, spec] of Object.entries(aliases)) {
+    switch (spec.type) {
+      case "from":
+      case "identifiers":
+      case "innerJoin": {
+        break;
+      }
+      case "leftJoinAndMapOne": {
+        const { relationName, entity, parentAlias } = spec;
+        if (parentAlias === currentAlias) {
+          obj[relationName] = rowToEntity(
+            entity,
+            row,
+            alias + "_",
+            aliases,
+            alias,
+            depth + 1,
+          );
         }
+        break;
+      }
+      default: {
+        const never: never = spec;
+        throw new Error(`Unknown alias type '${never}'`);
       }
     }
   }
