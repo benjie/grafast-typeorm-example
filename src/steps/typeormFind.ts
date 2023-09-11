@@ -10,6 +10,8 @@ import {
   first,
   PageInfoCapableStep,
   ConstantStep,
+  list,
+  object,
 } from "grafast";
 import { BaseEntity, In } from "typeorm";
 import { TypeormRecordStep } from "./typeormRecord";
@@ -68,6 +70,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
   constructor(
     public readonly entity: TEntity,
     spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
+    public readonly isGuaranteedToExist = false,
   ) {
     super();
     for (const [columnName, $column] of Object.entries(spec)) {
@@ -336,6 +339,26 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     return `${GRAFAST_IDENTS}.${key}`;
   }
 
+  optimize() {
+    // If I'm guaranteed to exist and the only columns accessed are in my spec,
+    // just return a simple object.
+    if (
+      this.isGuaranteedToExist &&
+      [...this.requestedAttributes].every((attr) =>
+        this.specColumns.find(([columnName]) => columnName === attr),
+      )
+    ) {
+      const spec = Object.create(null);
+      for (const [columnName, depId] of this.specColumns) {
+        spec[columnName as string] = this.getDep(depId);
+      }
+      return list([object(spec)]);
+    }
+
+    // otherwise:
+    return this;
+  }
+
   requestedAttributes = new Set<string>();
   select(columnNames: string[]) {
     columnNames.forEach((n) => this.requestedAttributes.add(n));
@@ -345,8 +368,9 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
 export function typeormFind<TEntity extends typeof BaseEntity>(
   entity: TEntity,
   spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
+  isGuaranteedToExist = false,
 ) {
-  return new TypeormFindStep(entity, spec);
+  return new TypeormFindStep(entity, spec, isGuaranteedToExist);
 }
 
 function getEntityProperties(row: object, prefix: string) {

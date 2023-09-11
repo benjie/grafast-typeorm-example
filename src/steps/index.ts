@@ -6,17 +6,25 @@ import { EventInterest } from "../typeorm/entity/EventInterest";
 import { Tag } from "../typeorm/entity/Tag";
 import { Venue } from "../typeorm/entity/Venue";
 
-export function getUser($id: ExecutableStep<any>) {
-  return typeormFind(User, { id: $id }).single();
+// Set 'isGuaranteedToExist' to 'true' if referential integrity guarantees the
+// related resource exists. If this is the case, we can short-circuit fetching
+// it if the only requested columns are the ones in its spec.
+
+export function getUser($id: ExecutableStep<any>, isGuaranteedToExist = false) {
+  return typeormFind(User, { id: $id }, isGuaranteedToExist).single();
 }
 
 export function getUpcomingEventsForUser($id: ExecutableStep<any>) {
   return typeormFind(EventInterest, { userId: $id });
 }
 
-export function getEvent($id: ExecutableStep<any>) {
-  return typeormFind(Event, { id: $id }).single();
+export function getEvent(
+  $id: ExecutableStep<any>,
+  isGuaranteedToExist = false,
+) {
+  return typeormFind(Event, { id: $id }, isGuaranteedToExist).single();
 }
+
 export function getViewerMetadataForEvent($eventId: ExecutableStep) {
   const $viewerId = context().get("viewerId");
   return typeormFind(EventInterest, {
@@ -25,12 +33,18 @@ export function getViewerMetadataForEvent($eventId: ExecutableStep) {
   }).single();
 }
 
-export function getTag($tagName: ExecutableStep<any>) {
-  return typeormFind(Tag, { name: $tagName }).single();
+export function getTag(
+  $tagName: ExecutableStep<any>,
+  isGuaranteedToExist = false,
+) {
+  return typeormFind(Tag, { name: $tagName }, isGuaranteedToExist).single();
 }
 
-export function getVenue($id: ExecutableStep<any>) {
-  return typeormFind(Venue, { id: $id }).single();
+export function getVenue(
+  $id: ExecutableStep<any>,
+  isGuaranteedToExist = false,
+) {
+  return typeormFind(Venue, { id: $id }, isGuaranteedToExist).single();
 }
 
 export function getViewerFriendAttendanceForEvent($eventId: ExecutableStep) {

@@ -95,7 +95,7 @@ export const schema = makeGrafastSchema({
       node($edge: EdgeCapableStep<any>) {
         const $eventInterest = $edge.node();
         const $eventId = $eventInterest.get("eventId");
-        return getEvent($eventId);
+        return getEvent($eventId, true);
       },
       cursor($edge: EdgeCapableStep<any>) {
         return $edge.cursor();
@@ -110,7 +110,7 @@ export const schema = makeGrafastSchema({
       node($edge: EdgeCapableStep<any>) {
         const $eventInterest = $edge.node();
         const $userId = $eventInterest.get("userId");
-        return getUser($userId);
+        return getUser($userId, true);
       },
       cursor($edge: EdgeCapableStep<any>) {
         return $edge.cursor();
@@ -122,10 +122,10 @@ export const schema = makeGrafastSchema({
         return getViewerMetadataForEvent($eventId).get("rsvp");
       },
       tags($event: TypeormRecordStep<typeof Event>) {
-        return each($event.get("tags"), ($tag) => getTag($tag));
+        return each($event.get("tags"), ($tag) => getTag($tag, true));
       },
       venue($event: TypeormRecordStep<typeof Event>) {
-        return getVenue($event.get("venueId"));
+        return getVenue($event.get("venueId"), true);
       },
       attendingFriendsOfViewer($event: TypeormRecordStep<typeof Event>) {
         const $eventId = $event.get("id");
