@@ -6,12 +6,16 @@ import {
   GrafastValuesList,
   InputStep,
   __ItemStep,
+  access,
   constant,
   first,
   PageInfoCapableStep,
   ConstantStep,
+  AccessStep,
+  FirstStep,
   list,
   object,
+  arraysMatch,
 } from "grafast";
 import { BaseEntity, In } from "typeorm";
 import { TypeormRecordStep } from "./typeormRecord";
@@ -50,8 +54,17 @@ function typeToPostgres(columnType: ColumnType): string {
 const escapeIdentifier = (identifier: string) =>
   `"${String(identifier).replace(/"/g, '""')}"`;
 
-type AliasSpec = AliasSpecInner | AliasSpecFrom | AliasSpecIdentifiers;
-type AliasSpecInner = { type: "inner"; relationName: string };
+type AliasSpec =
+  | AliasSpecInnerJoin
+  | AliasSpecLeftJoinAndMapOne
+  | AliasSpecFrom
+  | AliasSpecIdentifiers;
+type AliasSpecInnerJoin = { type: "innerJoin"; relationName: string };
+type AliasSpecLeftJoinAndMapOne = {
+  type: "leftJoinAndMapOne";
+  relationName: string;
+  condition?: string;
+};
 type AliasSpecFrom = { type: "from" };
 type AliasSpecIdentifiers = { type: "identifiers" };
 
@@ -61,10 +74,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
 {
   specColumns: Array<[columnName: keyof InstanceType<TEntity>, depId: number]> =
     [];
-  aliases: Record<string, AliasSpec> = Object.assign(Object.create(null), {
-    tbl: { type: "from" },
-    [GRAFAST_IDENTS]: { type: "identifiers" },
-  });
+  aliases: Record<string, AliasSpec>;
   conditions: Array<{ sql: string }> = [];
   params: Record<string, number> = Object.create(null);
   constructor(
@@ -73,6 +83,10 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     public readonly isGuaranteedToExist = false,
   ) {
     super();
+    this.aliases = Object.assign(Object.create(null), {
+      [this.entity.name]: { type: "from" },
+      [GRAFAST_IDENTS]: { type: "identifiers" },
+    });
     for (const [columnName, $column] of Object.entries(spec)) {
       this.specColumns.push([
         columnName as keyof InstanceType<TEntity>,
@@ -89,15 +103,14 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
         .join(",")}]`;
     }
     const joins = Object.entries(this.aliases).filter(
-      (foo): foo is [string, AliasSpecInner] => foo[1].type === "inner",
+      (foo): foo is [string, AliasSpecInnerJoin] => foo[1].type === "innerJoin",
     );
     for (const [alias, spec] of joins) {
       str += `,${spec.relationName}`;
     }
-    if (this.aliases.tbl)
-      if (this.conditions.length > 0) {
-        str += "?";
-      }
+    if (this.conditions.length > 0) {
+      str += "?";
+    }
     return str;
   }
 
@@ -116,8 +129,12 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
           // Already handled
           break;
         }
-        case "inner": {
+        case "innerJoin": {
           $clone.innerJoin(spec.relationName, alias);
+          break;
+        }
+        case "leftJoinAndMapOne": {
+          $clone.leftJoinAndMapOne(spec.relationName, alias, spec.condition);
           break;
         }
         default: {
@@ -129,7 +146,6 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     for (const condition of this.conditions) {
       $clone.where(condition.sql);
     }
-    const params = Object.create(null);
     for (const [paramName, depId] of Object.entries(this.params)) {
       $clone.param(this.getDep(depId), paramName);
     }
@@ -235,8 +251,17 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
           // Already handled
           break;
         }
-        case "inner": {
+        case "innerJoin": {
           qb.innerJoin(spec.relationName, alias);
+          break;
+        }
+        case "leftJoinAndMapOne": {
+          qb.leftJoinAndMapOne(
+            spec.relationName,
+            spec.relationName,
+            alias,
+            spec.condition ?? "true",
+          );
           break;
         }
         default: {
@@ -255,7 +280,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     if (trivial) {
       // No spec; therefore every call is the same
       const records = rows.map((row) =>
-        this.entity.create(getEntityProperties(row, `${this.entity.name}_`)),
+        rowToEntity(this.entity, row, `${this.entity.name}_`, this.aliases),
       ) as InstanceType<TEntity>[];
       return Array.from({ length: count }, () => records);
     } else {
@@ -265,8 +290,11 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
       for (const row of rows) {
         const idx = row.grafast_idx;
         if (!recordsByIdx[idx]) recordsByIdx[idx] = [];
-        const record = this.entity.create(
-          getEntityProperties(row, `${this.entity.name}_`),
+        const record = rowToEntity(
+          this.entity,
+          row,
+          `${this.entity.name}_`,
+          this.aliases,
         ) as InstanceType<TEntity>;
 
         recordsByIdx[idx].push(record as InstanceType<TEntity>);
@@ -323,7 +351,18 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     if (this.aliases[alias]) {
       throw new Error("A table with that alias already exists");
     }
-    this.aliases[alias] = { type: "inner", relationName };
+    this.aliases[alias] = { type: "innerJoin", relationName };
+  }
+
+  leftJoinAndMapOne(relationName: string, alias: string, condition?: string) {
+    if (this.aliases[alias]) {
+      throw new Error("A table with that alias already exists");
+    }
+    this.aliases[alias] = {
+      type: "leftJoinAndMapOne",
+      relationName,
+      condition,
+    };
   }
 
   where(sql: string) {
@@ -355,6 +394,68 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
       return list([object(spec)]);
     }
 
+    // If I have a spec:
+    if (this.specColumns.length > 0) {
+      // And my spec values are each access steps
+      const specSteps = this.specColumns
+        .map(([, depId]) => this.getDep(depId))
+        .filter(($step) => !($step instanceof ConstantStep));
+      if (
+        specSteps.length > 0 &&
+        specSteps.every((s) => s instanceof AccessStep)
+      ) {
+        // and the access plan is from a TypeormRecord
+        let typeormRecordStep = specSteps[0].getDep(0);
+        if (
+          typeormRecordStep instanceof TypeormRecordStep &&
+          specSteps.every((s) => s.getDep(0) === typeormRecordStep)
+        ) {
+          // and that record is a first
+          const recordDep = typeormRecordStep.getDep(0);
+          if (recordDep instanceof FirstStep) {
+            // and the first's parent is a TypeormFind
+            const parent = recordDep.getDep(0);
+            if (parent instanceof TypeormFindStep) {
+              const columnNames = this.specColumns.map(
+                ([columnName]) => columnName,
+              );
+              // then if we can find a matching relationship
+              const parentEntity = parent.entity as typeof BaseEntity;
+              const metadata = parentEntity.getRepository().metadata;
+              const sortedColumnNames = [...columnNames].sort() as string[];
+              // and the relationship is unique
+              const relation = metadata.relationsWithJoinColumns.find((rel) =>
+                rel.foreignKeys.some((k) =>
+                  arraysMatch(
+                    [...k.referencedColumnNames].sort(),
+                    sortedColumnNames,
+                  ),
+                ),
+              );
+              if (relation) {
+                const name = relation.propertyName;
+                parent.leftJoinAndMapOne(
+                  name,
+                  `inline_${name}`,
+                  this.conditions.length === 0
+                    ? "true"
+                    : `(${this.conditions
+                        .map(({ sql }) => `(${sql})`)
+                        .join(" AND ")})`,
+                );
+                for (const [paramName, depId] of Object.entries(this.params)) {
+                  parent.param(this.getDep(depId), paramName);
+                }
+                // tell that TypeormFind to fetch us
+                // and replace ourself with a single-item list of an access to this
+                return list([access(recordDep, relation.propertyName)]);
+              }
+            }
+          }
+        }
+      }
+    }
+
     // otherwise:
     return this;
   }
@@ -373,12 +474,41 @@ export function typeormFind<TEntity extends typeof BaseEntity>(
   return new TypeormFindStep(entity, spec, isGuaranteedToExist);
 }
 
-function getEntityProperties(row: object, prefix: string) {
+function rowToEntity(
+  entityType: typeof BaseEntity,
+  row: object,
+  prefix: string,
+  aliases: Record<string, AliasSpec>,
+) {
   const obj = Object.create(null);
   for (const [key, val] of Object.entries(row)) {
     if (key.startsWith(prefix)) {
-      obj[key.substr(prefix.length)] = val;
+      obj[key.substring(prefix.length)] = val;
+    } else {
+      for (const [alias, spec] of Object.entries(aliases)) {
+        if (key.startsWith(`${alias}_`)) {
+          switch (spec.type) {
+            case "from":
+            case "identifiers":
+            case "innerJoin": {
+              break;
+            }
+            case "leftJoinAndMapOne": {
+              const { relationName } = spec;
+              if (!obj[relationName]) {
+                obj[relationName] = Object.create(null);
+              }
+              obj[relationName][key.substring(alias.length + 1)] = val;
+              break;
+            }
+            default: {
+              const never: never = spec;
+              throw new Error(`Unknown alias type '${never}'`);
+            }
+          }
+        }
+      }
     }
   }
-  return obj;
+  return entityType.create(obj);
 }
