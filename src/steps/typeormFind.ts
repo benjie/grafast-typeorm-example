@@ -279,7 +279,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
   }
 
   listItem($item: __ItemStep<InstanceType<TEntity>>) {
-    return new TypeormRecordStep(this.entity, $item);
+    return new TypeormRecordStep(this, $item);
   }
 
   firstDep: number | null = null;
@@ -313,7 +313,7 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
 
   single(): TypeormRecordStep<TEntity> {
     this.setFirst(constant(1));
-    return new TypeormRecordStep(this.entity, first(this));
+    return new TypeormRecordStep(this, first(this));
   }
 
   innerJoin(relationName: string, alias: string) {
@@ -334,6 +334,11 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     }
     this.params[key] = this.addDependency($step);
     return `${GRAFAST_IDENTS}.${key}`;
+  }
+
+  requestedAttributes = new Set<string>();
+  select(columnNames: string[]) {
+    columnNames.forEach((n) => this.requestedAttributes.add(n));
   }
 }
 

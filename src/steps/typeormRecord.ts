@@ -14,15 +14,23 @@ export class TypeormRecordStep<
   TEntity extends typeof BaseEntity,
 > extends ExecutableStep<InstanceType<TEntity>> {
   isSyncAndSafe = true;
+  public readonly entity: TEntity;
+  private readonly findStepId: number;
   constructor(
-    public readonly entity: TEntity,
+    findStep: TypeormFindStep<TEntity>,
     $item: ExecutableStep<InstanceType<TEntity>>,
   ) {
     super();
+    this.findStepId = findStep.id;
+    this.entity = findStep.entity;
     this.addDependency($item);
   }
   toStringMeta(): string {
     return this.entity.name;
+  }
+
+  getFindStep(): TypeormFindStep<TEntity> {
+    return this.getStep(this.findStepId) as any;
   }
 
   execute(
@@ -32,6 +40,7 @@ export class TypeormRecordStep<
     return values[0];
   }
 
+  requestedAttributes = new Set<string>();
   get<TKey extends keyof InstanceType<TEntity>>(
     key: TKey,
   ): ExecutableStep<InstanceType<TEntity>[TKey]> {
@@ -39,27 +48,20 @@ export class TypeormRecordStep<
     // TODO: only do this if safe to do so, e.g. `citext` wouldn't be safe since
     // the records 'username' might be 'Benjie' but the search parameter might
     // be 'bEnJiE'.
-    let parent = this.getDep(0);
-    while (parent instanceof __ItemStep || parent instanceof FirstStep) {
-      parent = parent.getDep(0);
-    }
-    if (parent instanceof TypeormFindStep) {
-      const spec = parent.specColumns.find((spec) => spec[0] === key);
-      if (spec) {
-        const $dep = parent.getDep(spec[1]);
-        console.log(
-          `FOUND! Replacing ${this}.get('${String(key)}') with ${$dep}`,
-        );
-        return $dep;
-      }
+    const parent = this.getFindStep();
+    const spec = parent.specColumns.find((spec) => spec[0] === key);
+    if (spec) {
+      const $dep = parent.getDep(spec[1]);
+      return $dep;
     }
 
-    // TODO: track this column was requested, add to select
+    this.requestedAttributes.add(key as string);
 
     return access(this, key);
   }
 
   optimize(): ExecutableStep<any> {
+    this.getFindStep().select([...this.requestedAttributes]);
     // This step doesn't need to exist at runtime
     return this.getDep(0);
   }
