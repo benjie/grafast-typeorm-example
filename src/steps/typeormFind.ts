@@ -15,6 +15,8 @@ import { BaseEntity, In } from "typeorm";
 import { TypeormRecordStep } from "./typeormRecord";
 import { ColumnType } from "typeorm";
 
+const GRAFAST_IDENTS = `grafast_idents`;
+
 /* TODO: does TypeORM have a way to do this natively? */
 function typeToPostgres(columnType: ColumnType): string {
   switch (columnType) {
@@ -52,6 +54,17 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
 {
   specColumns: Array<[columnName: keyof InstanceType<TEntity>, depId: number]> =
     [];
+  aliases: Record<
+    string,
+    | { type: "inner"; relationName: string }
+    | { type: "from" }
+    | { type: "identifiers" }
+  > = Object.assign(Object.create(null), {
+    tbl: { type: "from" },
+    [GRAFAST_IDENTS]: { type: "identifiers" },
+  });
+  conditions: Array<{ sql: string }> = [];
+  params: Record<string, number> = Object.create(null);
   constructor(
     public readonly entity: TEntity,
     spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
@@ -66,13 +79,39 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
   }
 
   clone() {
-    return new TypeormFindStep(
+    const $clone = new TypeormFindStep(
       this.entity,
       this.specColumns.reduce((memo, [columnName, depId]) => {
         memo[columnName] = this.getDep(depId);
         return memo;
       }, Object.create(null)),
     );
+    for (const [alias, spec] of Object.entries(this.aliases)) {
+      switch (spec.type) {
+        case "from":
+        case "identifiers": {
+          // Already handled
+          break;
+        }
+        case "inner": {
+          $clone.innerJoin(spec.relationName, alias);
+          break;
+        }
+        default: {
+          const never: never = spec;
+          throw new Error(`Unknown alias type '${never}'`);
+        }
+      }
+    }
+    for (const condition of this.conditions) {
+      $clone.where(condition.sql);
+    }
+    const params = Object.create(null);
+    for (const [paramName, depId] of Object.entries(this.params)) {
+      $clone.param(this.getDep(depId), paramName);
+    }
+
+    return $clone;
   }
 
   connectionDepId: number | null = null;
@@ -95,12 +134,11 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     values: GrafastValuesList<number | null>[],
   ): Promise<GrafastResultsList<InstanceType<TEntity>[]>> {
     const qb = this.entity.createQueryBuilder();
-    if (this.specColumns.length === 0) {
+    const trivial =
+      this.specColumns.length === 0 &&
+      Object.values(this.params).filter((p) => p >= 0).length === 0;
+    if (trivial) {
       /* no filtering required */
-    } else if (this.specColumns.length === 1) {
-      const [columnName, depId] = this.specColumns[0];
-      const ids = values[depId].filter((id) => id != null);
-      qb.where({ [columnName]: In(ids) });
     } else {
       const columnNames: string[] = [];
       const propertyNames: string[] = [];
@@ -120,67 +158,104 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
       }
 
       const tuples: any[][] = [];
+      const paramsEntries = Object.entries(this.params);
       outerloop: for (let i = 0; i < count; i++) {
-        const tuple = [];
+        const tuple: any[] = [i];
         for (const [columnName, depId] of this.specColumns) {
           const val = values[depId][i];
           if (val == null) continue outerloop;
           tuple.push(val);
         }
+        for (const [paramName, depId] of paramsEntries) {
+          const val = values[depId][i];
+          tuple.push(val);
+        }
         tuples.push(tuple);
       }
 
+      const cteColumns: string[] = [];
+      cteColumns.push(`(j->>0)::"int4" as idx`);
+      for (let i = 0; i < columnTypes.length; i++) {
+        cteColumns.push(
+          `(j->>${i + 1})::${escapeIdentifier(columnTypes[i])} AS ident_${i}`,
+        );
+      }
+      for (let i = 0; i < paramsEntries.length; i++) {
+        cteColumns.push(
+          `(j->>${i + 1 + columnTypes.length}) AS ${escapeIdentifier(
+            paramsEntries[i][0],
+          )}`,
+        );
+      }
+
       qb.addCommonTableExpression(
-        `SELECT ${columnTypes
-          .map((t, i) => `(j->>${i})::${escapeIdentifier(t)} AS ident_${i}`)
-          .join(", ")} FROM json_array_elements(:json) j`,
-        "grafast_idents",
+        `SELECT ${cteColumns.join(", ")} FROM json_array_elements(:json) j`,
+        GRAFAST_IDENTS,
       );
       qb.setParameters({
         json: JSON.stringify(tuples),
       });
       qb.innerJoin(
-        "grafast_idents",
-        "grafast_idents",
+        GRAFAST_IDENTS,
+        GRAFAST_IDENTS,
         `${propertyNames
           .map((n, i) => `${escapeIdentifier(n)} = ident_${i}`)
           .join(" AND ")}`,
       );
+      qb.addSelect(`${GRAFAST_IDENTS}.idx`, `grafast_idx`);
     }
-    const records = (await qb.getMany()) as InstanceType<TEntity>[];
 
-    if (this.specColumns.length === 0) {
+    for (const [alias, spec] of Object.entries(this.aliases)) {
+      switch (spec.type) {
+        case "from":
+        case "identifiers": {
+          // Already handled
+          break;
+        }
+        case "inner": {
+          qb.innerJoin(spec.relationName, alias);
+          break;
+        }
+        default: {
+          const never: never = spec;
+          throw new Error(`Unknown alias type '${never}'`);
+        }
+      }
+    }
+
+    for (const condition of this.conditions) {
+      qb.andWhere(condition.sql);
+    }
+
+    const rows = await qb.getRawMany();
+
+    if (trivial) {
       // No spec; therefore every call is the same
+      const records = rows.map((row) =>
+        this.entity.create(getEntityProperties(row, `${this.entity.name}_`)),
+      ) as InstanceType<TEntity>[];
       return Array.from({ length: count }, () => records);
-    }
+    } else {
+      // Group the rows by their matching spec
+      const recordsByIdx: Record<number, InstanceType<TEntity>[]> =
+        Object.create(null);
+      for (const row of rows) {
+        const idx = row.grafast_idx;
+        if (!recordsByIdx[idx]) recordsByIdx[idx] = [];
+        const record = this.entity.create(
+          getEntityProperties(row, `${this.entity.name}_`),
+        ) as InstanceType<TEntity>;
 
-    // Group the rows by their matching spec
-    const rowsBySpec: Record<string, InstanceType<TEntity>[]> =
-      Object.create(null);
-    for (const record of records) {
-      const spec = Object.create(null);
-      for (const [columnName] of this.specColumns) {
-        spec[columnName] = record[columnName];
+        recordsByIdx[idx].push(record as InstanceType<TEntity>);
       }
-      const id = JSON.stringify(spec);
-      if (!rowsBySpec[id]) {
-        rowsBySpec[id] = [record] as InstanceType<TEntity>[];
-      } else {
-        rowsBySpec[id].push(record as InstanceType<TEntity>);
-      }
-    }
 
-    // Now populate the results list
-    const results = new Array<InstanceType<TEntity>[]>(count);
-    for (let i = 0; i < count; i++) {
-      const spec = Object.create(null);
-      for (const [columnName, depId] of this.specColumns) {
-        spec[columnName] = values[depId][i];
+      // Now populate the results list
+      const results = new Array<InstanceType<TEntity>[]>(count);
+      for (let idx = 0; idx < count; idx++) {
+        results[idx] = recordsByIdx[idx] ?? [];
       }
-      const id = JSON.stringify(spec);
-      results[i] = rowsBySpec[id] ?? [];
+      return results;
     }
-    return results;
   }
 
   listItem($item: __ItemStep<InstanceType<TEntity>>) {
@@ -220,6 +295,26 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
     this.setFirst(constant(1));
     return new TypeormRecordStep(this.entity, first(this));
   }
+
+  innerJoin(relationName: string, alias: string) {
+    if (this.aliases[alias]) {
+      throw new Error("A table with that alias already exists");
+    }
+    this.aliases[alias] = { type: "inner", relationName };
+  }
+
+  where(sql: string) {
+    this.conditions.push({ sql });
+  }
+
+  param($step: ExecutableStep, key = `param_${$step.id}`) {
+    if (this.params[key] !== undefined) {
+      // TODO: If it's the same step, then it's fine
+      throw new Error("That param name is already used");
+    }
+    this.params[key] = this.addDependency($step);
+    return `${GRAFAST_IDENTS}.${key}`;
+  }
 }
 
 export function typeormFind<TEntity extends typeof BaseEntity>(
@@ -227,4 +322,14 @@ export function typeormFind<TEntity extends typeof BaseEntity>(
   spec: Partial<Record<keyof InstanceType<TEntity>, ExecutableStep<any>>>,
 ) {
   return new TypeormFindStep(entity, spec);
+}
+
+function getEntityProperties(row: object, prefix: string) {
+  const obj = Object.create(null);
+  for (const [key, val] of Object.entries(row)) {
+    if (key.startsWith(prefix)) {
+      obj[key.substr(prefix.length)] = val;
+    }
+  }
+  return obj;
 }

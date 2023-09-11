@@ -34,10 +34,20 @@ export function getVenue($id: ExecutableStep<any>) {
 }
 
 export function getViewerFriendAttendanceForEvent($eventId: ExecutableStep) {
+  const $viewerId = context().get("viewerId");
+
+  // Get the attendees of the event (RSVP = 'yes')
   const $list = typeormFind(EventInterest, {
     eventId: $eventId,
     rsvp: constant("yes", true),
   });
-  // TODO: limit to friends
+
+  // Join to user then to friendship (reverse)
+  $list.innerJoin("EventInterest.user", "user");
+  $list.innerJoin("user.reverseFriendships", "friendship");
+
+  // Limit to just the attendees who are friends with the viewer
+  $list.where(`friendship."userId" = ${$list.param($viewerId)}::"int4"`);
+
   return $list;
 }

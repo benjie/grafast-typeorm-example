@@ -50,7 +50,8 @@ insert into event_interest
   ("eventId", "userId", rsvp) values
   (1, 1, null),
   (1, 2, 'interested'),
-  (1, 3, 'yes'),
+  (1, 3, 'yes'), -- friend of user '2'
+  (1, 5, 'yes'), -- not a friend of user '2'
   (2, 3, 'yes'),
   (2, 4, 'maybe'),
   (3, 4, 'no'),
