@@ -411,10 +411,13 @@ export class TypeormFindStep<TEntity extends typeof BaseEntity>
           typeormRecordStep instanceof TypeormRecordStep &&
           specSteps.every((s) => s.getDep(0) === typeormRecordStep)
         ) {
-          // and that record is a first
+          // and that record is either a list item or the first of a list
           const recordDep = typeormRecordStep.getDep(0);
-          if (recordDep instanceof FirstStep) {
-            // and the first's parent is a TypeormFind
+          if (
+            recordDep instanceof FirstStep ||
+            recordDep instanceof __ItemStep
+          ) {
+            // and the parent of that is a TypeormFind
             const parent = recordDep.getDep(0);
             if (parent instanceof TypeormFindStep) {
               const columnNames = this.specColumns.map(
