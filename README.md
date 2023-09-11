@@ -16,3 +16,7 @@ However, thanks to the power of Gra*fast*'s planning and execution engine we
 can determine the relationship between the steps for an operation and collapse
 the waterfall, plus inline some queries, and eradicate others entirely (e.g. no
 need to query the tags table).
+
+This project is based on the query in the following blog post:
+
+https://andrewingram.net/posts/optimising-your-graphql-request-waterfalls
