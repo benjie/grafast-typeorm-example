@@ -82,6 +82,7 @@ export const schema = makeGrafastSchema({
       upcomingEvents($user, { $first }) {
         const $userId = $user.get("id");
         const $list = getUpcomingEventsForUser($userId);
+        // TODO: $first
         return connection($list);
       },
     },
